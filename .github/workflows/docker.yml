@@ -28,13 +28,13 @@ jobs:
       - name: Build & push API
         uses: docker/build-push-action@v5
         with:
-          context: ./api
+          context: ./navyt-api
           push: true
           tags: ghcr.io/${{ env.USERNAME }}/navyt-api:latest
 
       - name: Build & push Web
         uses: docker/build-push-action@v5
         with:
-          context: ./web
+          context: ./navyt-web
           push: true
           tags: ghcr.io/${{ env.USERNAME }}/navyt-web:latest
