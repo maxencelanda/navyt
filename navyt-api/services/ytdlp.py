@@ -1,6 +1,11 @@
 import yt_dlp
 import os
 from typing import Optional
+import glob
+import logging
+from services.deezer import search_track, fetch_cover_art, embed_tags
+
+logger = logging.getLogger(__name__)
 
 MEDIA_DIR = os.getenv("NAVIDROME_MEDIA_DIR", "/music")
 
@@ -72,17 +77,33 @@ def download_audio(
 ) -> dict:
     url = f"https://www.youtube.com/watch?v={video_id}"
 
-    artist_safe = _sanitize(artist or "Unknown Artist")
-    album_safe = _sanitize(album or "Unknown Album")
+    with yt_dlp.YoutubeDL(_base_opts()) as ydl:
+        info = ydl.extract_info(url, download=False)
+    
+    yt_title = info.get("title", video_id)
+    yt_channel = info.get("channel") or info.get("uploader")
+    
+    dz_meta = search_track(title or yt_title, artist or yt_channel)
+    logger.info(f"Deezer match for '{yt_title}': {dz_meta}")
+    
+    final_title  = title  or (dz_meta and dz_meta["title"])  or yt_title
+    final_artist = artist or (dz_meta and dz_meta["artist"]) or yt_channel or "Unknown Artist"
+    final_album  = album  or (dz_meta and dz_meta["album"])  or "Unknown Album"
+    final_year   = dz_meta and dz_meta.get("year")
+    final_genre  = dz_meta and dz_meta.get("genre")
+    cover_url    = dz_meta and dz_meta.get("cover_url")
+
+    artist_safe = _sanitize(final_artist)
+    album_safe  = _sanitize(final_album)
     out_dir = os.path.join(MEDIA_DIR, artist_safe, album_safe)
     os.makedirs(out_dir, exist_ok=True)
 
     outtmpl = os.path.join(out_dir, "%(title)s.%(ext)s")
-    if title:
-        outtmpl = os.path.join(out_dir, f"{_sanitize(title)}.%(ext)s")
+    if final_title:
+        outtmpl = os.path.join(out_dir, f"{_sanitize(final_title)}.%(ext)s")
 
     opts = _base_opts({
-        "format": "140/251/250/249/139/18",
+        "format": "251/140/250/249/139/18",
         "outtmpl": outtmpl,
         "postprocessors": [
             {
@@ -90,34 +111,45 @@ def download_audio(
                 "preferredcodec": "mp3",
                 "preferredquality": "320",
             },
-            {
-                "key": "FFmpegMetadata",
-                "add_metadata": True,
-            },
         ],
-        "postprocessor_args": {
-            "ffmpeg": [
-                *(
-                    [
-                        "-metadata", f"artist={artist}",
-                        "-metadata", f"album={album}",
-                        "-metadata", f"title={title}",
-                    ]
-                    if any([artist, album, title]) else []
-                ),
-            ]
-        },
     })
 
+    # Step 2 — download
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        return {
-            "video_id": video_id,
-            "title": title or info.get("title"),
-            "artist": artist,
-            "album": album,
-            "output_dir": out_dir,
-        }
+
+    # Step 3 — find the output file
+    search_title = _sanitize(final_title or info.get("title", video_id))
+    matches = glob.glob(os.path.join(out_dir, f"{search_title}*.mp3"))
+    if not matches:
+        matches = glob.glob(os.path.join(out_dir, "*.mp3"))
+    mp3_path = matches[0] if matches else None
+
+    # Step 4 — embed tags + cover art
+    if mp3_path:
+        cover_art = fetch_cover_art(cover_url) if cover_url else None
+
+        embed_tags(
+            filepath=mp3_path,
+            title=final_title or info.get("title"),
+            artist=final_artist,
+            album=final_album,
+            year=final_year,
+            genre=final_genre,
+            cover_art=cover_art,
+        )
+
+    return {
+        "video_id": video_id,
+        "title": final_title or info.get("title"),
+        "artist": final_artist,
+        "album": final_album,
+        "year": final_year,
+        "genre": final_genre,
+        "deezer_match": dz_meta is not None,
+        "output_path": mp3_path,
+        "output_dir": out_dir,
+    }
 
 
 def _sanitize(name: str) -> str:

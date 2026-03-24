@@ -5,21 +5,45 @@
         <div class="modal">
           <button class="close" @click="emit('close')">×</button>
           <div class="header">
-            <img :src="video.thumbnail" :alt="video.title" class="thumb" />
+            <div class="embed-wrap">
+                <iframe
+                :src="`https://www.youtube.com/embed/${video.id}?autoplay=0`"
+                frameborder="0"
+                allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+                />
+            </div>
             <div>
-              <p class="video-title">{{ video.title }}</p>
-              <p class="channel">{{ video.channel }}</p>
+                <p class="video-title">{{ video.title }}</p>
+                <p class="channel">{{ video.channel }}</p>
             </div>
           </div>
+
+          <!-- Deezer preview -->
+          <Transition name="fade">
+            <div v-if="mbPreview" class="mb-preview" :class="{ found: mbPreview.found }">
+                <img v-if="mbPreview.found && mbPreview.cover_url" :src="mbPreview.cover_url" class="dz-thumb" />
+                <span class="mb-icon">{{ mbPreview.found ? '✦' : '○' }}</span>
+                <span v-if="mbPreview.found" class="dz-info">
+                    Deezer match — <strong>{{ mbPreview.artist }}</strong>
+                    · {{ mbPreview.album }}
+                    <em v-if="mbPreview.year">({{ mbPreview.year }})</em>
+                </span>
+                <span v-else>No Deezer match found, using provided metadata</span>
+                <button v-if="mbPreview.found" class="fill-btn" @click="fillFromDeezer">
+                    ↙ Fill
+                </button>
+            </div>
+          </Transition>
 
           <div class="fields">
             <label>
               <span>Title</span>
-              <input v-model="form.title" type="text" :placeholder="video.title" />
+              <input v-model="form.title" type="text" :placeholder="video.title" @input="debouncedLookup" />
             </label>
             <label>
               <span>Artist</span>
-              <input v-model="form.artist" type="text" placeholder="Artist name" />
+              <input v-model="form.artist" type="text" placeholder="Artist name" @input="debouncedLookup" />
             </label>
             <label>
               <span>Album</span>
@@ -28,12 +52,12 @@
           </div>
 
           <p class="hint">
-            File will be saved as <code>{{ previewPath }}</code>
+            Saved to <code>{{ previewPath }}</code>
           </p>
 
           <button class="confirm-btn" :disabled="submitting" @click="submit">
             <span v-if="submitting" class="spinner" />
-            <span v-else>Download as OPUS</span>
+            <span v-else>Download as MP3</span>
           </button>
         </div>
       </div>
@@ -46,9 +70,12 @@ const props = defineProps<{ video: any | null }>();
 const emit = defineEmits<{ close: []; submitted: [job: any] }>();
 
 const { startDownload } = useApi();
+const config = useRuntimeConfig();
 
 const form = reactive({ title: "", artist: "", album: "" });
 const submitting = ref(false);
+const mbPreview = ref<any>(null);
+let lookupTimeout: ReturnType<typeof setTimeout>;
 
 const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9 .\-_()\[\]]/g, "_").trim();
 
@@ -56,15 +83,54 @@ const previewPath = computed(() => {
   const artist = sanitize(form.artist || "Unknown Artist");
   const album = sanitize(form.album || "Unknown Album");
   const title = sanitize(form.title || props.video?.title || "track");
-  return `<MEDIA_DIR>/${artist}/${album}/${title}.opus`;
+  return `<MEDIA_DIR>/${artist}/${album}/${title}.mp3`;
 });
+
+const fillFromDeezer = () => {
+  if (!mbPreview.value?.found) return;
+  form.title  = mbPreview.value.title  || form.title;
+  form.artist = mbPreview.value.artist || form.artist;
+  form.album  = mbPreview.value.album  || form.album;
+};
+
+const lookupDeezer = async () => {
+  const title = form.title || props.video?.title;
+  const artist = form.artist || props.video?.channel;
+  if (!title) return;
+
+  try {
+    const params = new URLSearchParams({ title, ...(artist ? { artist } : {}) });
+    const data = await $fetch<any>(
+      `${config.public.apiBase}/api/search/deezer?${params}`
+    );
+    mbPreview.value = data.found
+    ? {
+      found: true,
+      title: data.title,
+      artist: data.artist,
+      album: data.album,
+      year: data.year,
+      cover_url: data.cover_url,
+    }
+    : { found: false };
+  } catch {
+    mbPreview.value = null;
+  }
+};
+
+const debouncedLookup = () => {
+  clearTimeout(lookupTimeout);
+  lookupTimeout = setTimeout(lookupDeezer, 600);
+};
 
 watch(() => props.video, (v) => {
   if (v) {
     form.title = "";
     form.artist = "";
     form.album = "";
+    mbPreview.value = null;
     submitting.value = false;
+    setTimeout(lookupDeezer, 300);
   }
 });
 
@@ -116,23 +182,78 @@ const submit = async () => {
 
 .header {
   display: flex; gap: 14px; align-items: flex-start;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
-.thumb {
-  width: 100px; height: 56px;
-  object-fit: cover; border-radius: 3px; flex-shrink: 0;
+.embed-wrap {
+  flex-shrink: 0;
+  width: 160px;
+  height: 90px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg);
 }
+.embed-wrap iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
 .video-title {
   font-size: 0.88rem; font-weight: 500; color: var(--text);
   margin: 0 0 4px; font-family: 'DM Sans', sans-serif;
 }
 .channel { font-size: 0.78rem; color: var(--muted); margin: 0; }
 
+.dz-thumb {
+  width: 32px; height: 32px;
+  border-radius: 2px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dz-info { flex: 1; }
+
+.fill-btn {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 2px;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.fill-btn:hover { background: var(--accent-bright); }
+
+.mb-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 3px;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.72rem;
+  margin-bottom: 16px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.mb-preview.found {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-dim);
+}
+.mb-preview strong { color: var(--accent); }
+.mb-icon { font-size: 0.8rem; color: var(--accent); flex-shrink: 0; }
+
 .fields { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
 
-label {
-  display: flex; flex-direction: column; gap: 5px;
-}
+label { display: flex; flex-direction: column; gap: 5px; }
 label span {
   font-family: 'Space Mono', monospace;
   font-size: 0.72rem;
@@ -189,6 +310,8 @@ code { color: var(--accent); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 .modal-enter-active, .modal-leave-active { transition: all 0.2s ease; }
 .modal-enter-from { opacity: 0; transform: scale(0.95); }
 .modal-leave-to { opacity: 0; transform: scale(0.95); }

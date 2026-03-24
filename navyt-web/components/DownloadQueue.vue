@@ -12,16 +12,24 @@
       <div v-if="open" class="queue-body">
         <div v-if="!jobs.length" class="empty">No downloads yet</div>
         <TransitionGroup name="list" tag="div" class="job-list">
-          <div v-for="job in jobs" :key="job.id" class="job">
-            <div class="job-info">
-              <p class="job-title">{{ job.title || job.video_id }}</p>
-              <p v-if="job.artist" class="job-meta">{{ job.artist }}{{ job.album ? ` — ${job.album}` : '' }}</p>
+            <div v-for="job in jobs" :key="job.id" class="job">
+                <div class="job-info">
+                    <p class="job-title">
+                    {{ job.title || job.video_id }}
+                    <span v-if="job.mb_match" class="mb-badge" title="Deezer matched">✦</span>
+                    </p>
+                    <p v-if="job.artist" class="job-meta">
+                    {{ job.artist }}
+                    <template v-if="job.album"> — {{ job.album }}</template>
+                    <template v-if="job.year"> ({{ job.year }})</template>
+                    </p>
+                    <p v-if="job.genre" class="job-genre">{{ job.genre }}</p>
+                </div>
+                <div class="job-right">
+                    <span class="status" :class="job.status">{{ job.status }}</span>
+                    <button class="remove-btn" @click="remove(job.id)">×</button>
+                </div>
             </div>
-            <div class="job-right">
-              <span class="status" :class="job.status">{{ job.status }}</span>
-              <button class="remove-btn" @click="remove(job.id)">×</button>
-            </div>
-          </div>
         </TransitionGroup>
         <button v-if="jobs.length" class="clear-btn" @click="clearDone">Clear done</button>
       </div>
@@ -140,6 +148,21 @@ defineExpose({ fetchJobs, open });
 .job-meta { font-size: 0.72rem; color: var(--muted); margin: 2px 0 0; }
 
 .job-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+.mb-badge {
+  color: var(--accent);
+  font-size: 0.65rem;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.job-genre {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin: 2px 0 0;
+  font-family: 'Space Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 
 .status {
   font-family: 'Space Mono', monospace;

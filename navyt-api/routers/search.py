@@ -1,5 +1,7 @@
+from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
 from services.ytdlp import search_videos, get_video_info
+from services.deezer import search_track
 
 router = APIRouter()
 
@@ -11,6 +13,13 @@ def search(q: str = Query(..., min_length=1), max_results: int = Query(20, ge=1,
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/deezer")
+def deezer_preview(title: str, artist: Optional[str] = None):
+    result = search_track(title, artist)
+    if result:
+        return {"found": True, **result}
+    return {"found": False}
 
 @router.get("/{video_id}")
 def video_info(video_id: str):
