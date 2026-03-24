@@ -1,0 +1,21 @@
+services:
+  api:
+    build: ./navyt-api
+    restart: unless-stopped
+    environment:
+      - NAVIDROME_MEDIA_DIR=${NAVIDROME_MEDIA_DIR}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    volumes:
+      - ${NAVIDROME_MEDIA_DIR}:${NAVIDROME_MEDIA_DIR}
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  web:
+    build: ./navyt-web
+    restart: unless-stopped
+    environment:
+      - NUXT_PUBLIC_API_BASE=${NUXT_PUBLIC_API_BASE}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
